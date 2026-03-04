@@ -4,10 +4,27 @@ services:
     container_name: oba-nginx
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./data/certbot/conf:/etc/letsencrypt # 실제 인증서 저장소
+      - ./data/certbot/www:/var/www/certbot # 인증을 위한 임시 파일 경로
     ports:
       - "80:80"
+      - "443:443"
     networks:
       - oba_shared_network
+    restart: always
+
+  certbot:
+    image: certbot/certbot
+    container_name: oba-certbot
+    volumes:
+      - ./data/certbot/conf:/etc/letsencrypt
+      - ./data/certbot/www:/var/www/certbot
+    # 48시간마다 자동으로 갱신 시도
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 48h & wait $${!}; done;'"
+    networks:
+      - oba_shared_network
+    depends_on:
+      - ai_nginx
     restart: always
 
 networks:

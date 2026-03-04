@@ -8,3 +8,14 @@
 ```sh
 docker network create oba_shared_network
 ```
+
+### 크론탭 설정 (필수)
+컨테이너 띄운 후 Ec2 터미널에서 자동 새로고침을 등록해야 합니다.
+```sh
+# 크론탭 편집기 열기
+sudo crontab -e
+```
+```sh
+# 매주 일요일(0) 새벽 4시 0분에 Nginx 새로고침 (일주일에 한 번)
+0 4 * * 0 docker exec oba-nginx nginx -s reload
+```
