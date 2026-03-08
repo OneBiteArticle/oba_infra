@@ -1,0 +1,76 @@
+pipeline {
+    agent any
+    
+    environment {
+        MM_WEBHOOK = credentials('MATTERMOST_WEBHOOK_URL')
+        DB_PW      = credentials('OBA_DB_PASSWORD')
+        MONGO_URI  = credentials('MONGODB_URI')
+        JWT_KEY    = credentials('JWT_SECRET')
+        G_SECRET   = credentials('GOOGLE_CLIENT_SECRET')
+        K_SECRET   = credentials('KAKAO_CLIENT_SECRET')
+        N_SECRET   = credentials('NAVER_CLIENT_SECRET')
+        OPENAI_KEY = credentials('OPENAI_API_KEY')
+    }
+
+    stages {
+        stage('1. Prepare Environment') {
+            steps {
+                script {
+                    echo "보안 변수 주입 중..."
+                    // oba_backend
+                    sh """
+                        echo '\n# Security Inject' >> oba_backend/.env
+                        echo 'DB_PASSWORD=${env.DB_PW}' >> oba_backend/.env
+                        echo 'MONGODB_URI=${env.MONGO_URI}' >> oba_backend/.env
+                        echo 'JWT_SECRET=${env.JWT_KEY}' >> oba_backend/.env
+                        echo 'GOOGLE_CLIENT_SECRET=${env.G_SECRET}' >> oba_backend/.env
+                        echo 'KAKAO_CLIENT_SECRET=${env.K_SECRET}' >> oba_backend/.env
+                        echo 'NAVER_CLIENT_SECRET=${env.N_SECRET}' >> oba_backend/.env
+                    """
+                    // oba_AI
+                    sh """
+                        echo '\n# Security Inject' >> oba_AI/.env
+                        echo 'OPEN_API_KEY=${env.OPENAI_KEY}' >> oba_AI/.env
+                        echo 'MONGODB_URI=${env.MONGO_URI}' >> oba_AI/.env
+                    """
+                    // oba_data
+                    sh """
+                        echo '\n# Security Inject' >> oba_data/.env
+                        echo 'MONGO_URI=${env.MONGO_URI}' >> oba_data/.env
+                        echo 'OBA_DB_PASSWORD=${env.DB_PW}' >> oba_data/.env
+                    """
+                }
+            }
+        }
+
+        stage('2. Deploy Services') {
+            steps {
+                script {
+                    try {
+                        echo "루트 디렉토리의 docker-compose로 통합 배포를 시작합니다."
+                        // 프로젝트 루트에 있는 docker-compose.yml을 실행합니다.
+                        sh "docker-compose up --build -d"
+                    } catch (Exception e) {
+                        currentBuild.result = 'FAILURE'
+                        error "❌ 통합 배포 중 에러 발생"
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        failure {
+            // node 블록을 제거하고 바로 script 실행
+            script {
+                def logFile = "${env.WORKSPACE}/extracted_log.txt"
+                sh "tail -n 100 /var/jenkins_home/jobs/${env.JOB_NAME}/builds/${env.BUILD_NUMBER}/log > ${logFile}"
+                sh "python3 infra/jenkins/analyze_log.py ${logFile} ${env.JOB_NAME} ${env.BUILD_NUMBER} ${env.BUILD_URL}"
+                sh "curl -sS -X POST -H 'Content-Type: application/json' -d @mattermost_payload.json ${MM_WEBHOOK}"
+            }
+        }
+        success {
+            sh "curl -sS -X POST -H 'Content-Type: application/json' -d '{\"text\":\"✅ **[한입기사]** 모든 서비스가 통합 배포되었습니다!\"}' ${MM_WEBHOOK}"
+        }
+    }
+}
